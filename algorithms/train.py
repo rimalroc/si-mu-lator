@@ -64,6 +64,11 @@ parser.add_argument('--q-ibits', dest='qibits', default=0, type=int, help='qKera
 parser.add_argument('--bigger-model', dest='bmod', default='none', type=str,
                     help='use bigger model as reference')
 
+parser.add_argument('--flag', dest='flag', default='none', type=str,
+                    help='additional flag to the model name')
+parser.add_argument('--prune', dest='prune', default=0, type=int, choices=range(0, 90),
+                    help='percentage of prunning 0 to 90')
+
 args = parser.parse_args()
 
 mod_name = 'MyTCN_'
@@ -84,7 +89,9 @@ if args.l1reg > 0:
     mod_name += f'_L1R{args.l1reg:.4f}'
 if 'none' not in args.detmat:
     mod_name += '_DetMat'
-    
+if 'none' not in args.flag:
+    mod_name += f'_{args.flag}'
+
 mod_name = mod_name.replace(',', '.')
 mod_name = mod_name.replace(':', '..')
 
@@ -109,7 +116,7 @@ print('N background:', (Y_mu == 0).sum())
 if 'none' in args.detmat:
     X_prep = datatools.training_prep(dmat, sig_keys)    
 else:
-    X_prep = datatools.detector_matrix(dmat, sig_keys, detcard=args.detmat)    
+    X_prep = datatools.detector_matrix_2(dmat, sig_keys, detcard=args.detmat)    
 
 vars_of_interest = np.zeros(X_prep.shape[2], dtype=bool)
 training_vars = trainingvariables.tvars
@@ -135,6 +142,8 @@ n_outs = 4
 
 mod_name += f'_{n_outs}Outputs'
 mod_name += '_LONG'
+if args.prune > 0:
+    mod_name += '_PRUNED' + f"{args.prune}" 
 
 my_model_class = mlmodels.MyTCNModel(
         input_shape=(X.shape[1],X.shape[2]),
@@ -145,15 +154,16 @@ my_model_class = mlmodels.MyTCNModel(
         batchnorm_inputs=args.inputbnorm,
         batchnorm_constr=args.bnormconst,
         n_outs=n_outs,
-        l1_reg=args.l1reg, l2_reg=0,
+        l1_reg=args.l1reg, l2_reg=0.0005,
         use_pen=args.penalty, pen_type=args.pentype,
         do_bias=args.regbias,
         pooling=pooling,
-        learning_rate=args.learning_rate)
+        learning_rate=args.learning_rate,
+        prune=args.prune)
 
 my_model = my_model_class.model()
 
-print("~~ This is a combined classification+regression task ~~")
+print("~~ This is a double regression task ~~")
 mult_fact_X = max(data['ev_mu_x'])
 mult_fact_a = max(data['ev_mu_theta'])
 mult_fact_Y = max(data['ev_mu_y'])
@@ -186,7 +196,7 @@ if args.qkeras:
     
     q_dict = {
         "QActivation": {
-            "relu": "quantized_relu({args.qbits},0)"
+            "relu": f"quantized_relu({args.qbits},0)"
         },
         "QBatchNormalization": {
             "kernel_quantizer": f"quantized_bits({args.qbits},{args.qibits},1)",
@@ -203,16 +213,40 @@ if args.qkeras:
     }
     
     from qkeras.utils import model_quantize
+    from qkeras.quantizers import quantized_bits, quantized_relu
     
-    q_model = model_quantize(my_model, q_dict, 4)
+    quantizer_b = quantized_bits(args.qbits,args.qibits,alpha=1,keep_negative=True, symmetric=True)
+    quantizer_r = quantized_relu(args.qbits,)
+    
+#    q_model = model_quantize(my_model, q_dict, 4)
+    my_qmodel_class = mlmodels.MyQ_TCNModel(
+        input_shape=(X.shape[1],X.shape[2]),
+        convs_1ds=conv_layers,
+        F_layers=dense_layers, 
+        batchnorm_dense=args.densebnorm,
+        batchnorm_conv=args.convbnorm, 
+        batchnorm_inputs=args.inputbnorm,
+        batchnorm_constr=args.bnormconst,
+        n_outs=n_outs,
+        l1_reg=args.l1reg, l2_reg=0.0005,
+        use_pen=args.penalty, pen_type=args.pentype,
+        do_bias=args.regbias,
+        pooling=pooling,
+        learning_rate=args.learning_rate,
+        quantizer_b=quantizer_b,
+        quantizer_r=quantizer_r
+    )
+
+    q_model = my_qmodel_class.model()
+    
     q_model.summary()
     
-    combloss = my_model_class.MyLoss()
+#    combloss = my_model_class.MyLoss()
 
-    from tensorflow.keras.optimizers import Adam
+#    from tensorflow.keras.optimizers import Adam
     
-    opt = Adam(learning_rate=0.01)
-    q_model.compile(loss=combloss, optimizer=opt)
+#    opt = Adam(learning_rate=args.learning_rate)
+#    q_model.compile(loss=combloss, optimizer=opt)
     
     q_model.save(f'models/{mod_name}')
     model_json = q_model.to_json()
@@ -221,7 +255,7 @@ if args.qkeras:
         
     history = q_model.fit( X_train, Y_train,
                             callbacks = [
-                                    EarlyStopping(monitor='val_loss', patience=5000, verbose=1), # lr_callback,
+                                    EarlyStopping(monitor='val_loss', patience=1000, verbose=1), # lr_callback,
                                     ModelCheckpoint(f'models/{mod_name}/weights.h5', monitor='val_loss', verbose=True, save_best_only=True) ],
                             epochs=5000,
                             validation_split = 0.25,
@@ -239,11 +273,13 @@ else:
     model_json = my_model.to_json()
     with open(f'models/{mod_name}/arch.json', 'w') as json_file:
         json_file.write(model_json)
-
+    callbacks = [ EarlyStopping(monitor='val_loss', patience=1000, verbose=1), # lr_callback,
+                  ModelCheckpoint(f'models/{mod_name}/weights.h5', monitor='val_loss', verbose=True,                    save_best_only=True) ]
+    if args.prune > 1:
+        from tensorflow_model_optimization.python.core.sparsity.keras import prune, pruning_callbacks, pruning_schedule
+        callbacks.append(pruning_callbacks.UpdatePruningStep())
     history = my_model.fit( X_train, Y_train,
-                            callbacks = [
-                                    EarlyStopping(monitor='val_loss', patience=1000, verbose=1), # lr_callback,
-                                    ModelCheckpoint(f'models/{mod_name}/weights.h5', monitor='val_loss', verbose=True, save_best_only=True) ],
+                            callbacks = callbacks,
                             epochs=5000,
                             validation_split = 0.25,
                             batch_size=2**14,

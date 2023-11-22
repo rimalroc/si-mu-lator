@@ -14,6 +14,12 @@ from tensorflow import keras
 from sklearn.metrics import accuracy_score, roc_auc_score, mean_squared_error
 
 import argparse
+#add prunning support
+from tensorflow_model_optimization.python.core.sparsity.keras import pruning_wrapper
+from qkeras.utils import _add_supported_quantized_objects,load_qmodel
+co = {}
+_add_supported_quantized_objects(co)
+co['PruneLowMagnitude'] = pruning_wrapper.PruneLowMagnitude
 
 def sigmoid(x):
     return 1/(1 + np.exp(-x))
@@ -82,7 +88,8 @@ print('--------- Loading network')
 # model = model_from_json(arch_json)
 # model.load_weights(mod_weig)
 
-model = keras.models.load_model(mod_arch.replace('arch.json', '') ,compile=False)
+#model = keras.models.load_model(mod_arch.replace('arch.json', '') ,compile=False)
+model = load_qmodel(mod_arch.replace('arch.json', 'weights.h5'),compile=False, custom_objects=co)
 model.summary()
 
 if model is None:
@@ -113,6 +120,20 @@ import hls4ml
 
 precision=str(args.iwidth + args.fwidth) + ',' + str(args.iwidth)
 
+#strip prunning if present
+from tensorflow_model_optimization.sparsity.keras import strip_pruning
+for layer in model.get_config()['layers']:
+    for key in layer.keys():
+        if 'class_name' in key:
+            if 'PruneLowMagnitude' in layer[key]:
+                print("model includes prunning, removing..")
+                model = strip_pruning(model)
+                break
+    else:
+        continue
+    break
+
+#
 config = hls4ml.utils.config_from_keras_model(model, granularity='name', 
                                               default_precision=f'ap_fixed<{precision}>',
                                               default_reuse_factor=args.reuse)
@@ -220,8 +241,8 @@ if args.viv:
     print("\n-----------------------------------")
     print('Loading Vivado 2019.2')
     import os
-    os.environ['PATH'] = '/gpfs/slac/atlas/fs1/d/rafaeltl/public/Xilinx/Vivado/2019.2/bin:' + os.environ['PATH']
-    os.environ['LM_LICENSE_FILE'] = '2100@rdlic1:2100@rdlic2:2100@rdlic3'
+    os.environ['PATH'] = '/opt/Xilinx/Vivado/Vivado/2019.2/bin:' + os.environ['PATH']
+    os.environ['LM_LICENSE_FILE'] = '2112@licenxilinx:2100@rdlic1:2100@rdlic2:2100@rdlic3'
     hls_model.build(csim=False, vsynth=True)
     from contextlib import redirect_stdout
     with open(out_loc_name+f'/reports/{hls_model_name}.txt', 'w') as f:
@@ -240,4 +261,7 @@ if args.viv:
         f.write( f"KERAS_HLS_MSE_A {keras_hls_msea}\n" )
         f.write( "\n" )
     print('Done Vivado 2019.2', out_loc_name+f'/reports/{hls_model_name}.txt')
+
+    np.save(out_loc_name+f'/reports/np_{hls_model_name}_X.npy', y_test_hls[:,0])
+    np.save(out_loc_name+f'/reports/np_{hls_model_name}_angle.npy', y_test_hls[:,2])
     print("-----------------------------------")

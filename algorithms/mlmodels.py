@@ -7,6 +7,18 @@ from tensorflow.keras.layers import LSTM, GRU, Conv1D, GlobalMaxPooling1D, Flatt
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.constraints import max_norm
+from qkeras.qnormalization import QBatchNormalization
+from qkeras.quantizers import quantized_bits, quantized_relu
+from qkeras.utils import _add_supported_quantized_objects,load_qmodel
+from qkeras.qlayers import QDense, QActivation
+from qkeras.qconvolutional import QConv1D
+
+from tensorflow_model_optimization.python.core.sparsity.keras import pruning_wrapper
+co = {}
+_add_supported_quantized_objects(co)
+co['PruneLowMagnitude'] = pruning_wrapper.PruneLowMagnitude
+
+from tensorflow_model_optimization.python.core.sparsity.keras import prune, pruning_callbacks, pruning_schedule
 
 import tensorflow as tf
 
@@ -17,22 +29,31 @@ def regr_loss_xa_quant(use_pen=True, pen_type=0):
     Custom loss that adds an event-based binary classifier loss (muon vs no muon)
     and many hit-based binary classifier losses (muon hit vs noise hit).
     The two components are importance weighted by input ll.
-
+    TODO:
+    in fact use_pen disables also quantile, so might be even a different function.
     """
     
     half = tf.constant(0.5, dtype=tf.float32)
     max_val = tf.constant(1, dtype=tf.float32)
     min_val = tf.constant(-1, dtype=tf.float32)
     pow_val = tf.constant(2, dtype=tf.float32)
-    delta_x = tf.constant(0.01, dtype=tf.float32)
-    delta_a = tf.constant(0.01, dtype=tf.float32)
+    delta_x = tf.constant(0.1, dtype=tf.float32)
+    delta_a = tf.constant(0.1, dtype=tf.float32)
     q_quant = tf.constant(0.25, dtype=tf.float32)
+    m_factor = tf.constant(0.2, dtype=tf.float32)
     
     reg_loss = tf.keras.losses.Huber(reduction='sum_over_batch_size')
+    reg_loss_x = tf.keras.losses.Huber(reduction='sum_over_batch_size', delta=delta_x)
+    reg_loss_a = tf.keras.losses.Huber(reduction='sum_over_batch_size', delta=delta_a)
     
     def quant_loss(ytrue, ypred, q):
         e = ytrue - ypred
         return tf.math.reduce_mean(K.maximum(q*e, (q-1)*e), axis=-1)
+    
+    def mean_loss(ytrue, ypred):
+        e = ytrue - ypred
+        mean = tf.math.reduce_mean(e, axis=-1)
+        return tf.math.abs(mean)*m_factor
     
     def penf(pred, bound_val):
         if pen_type == 2:
@@ -49,22 +70,45 @@ def regr_loss_xa_quant(use_pen=True, pen_type=0):
             
         return tf.math.reduce_mean(pfunc, axis=-1)
     
-    def tot_loss_indx(y_true, y_pred_nom, y_pred_quant, delta=tf.constant(1., dtype=tf.float32)):
-        r_loss = reg_loss( y_true, y_pred_nom, delta )
+    def tot_loss_ind_x(y_true, y_pred_nom, y_pred_quant, delta=tf.constant(1., dtype=tf.float32)):
+        # the third argument here represents sample_weight, not delta
+        r_loss = reg_loss_x( y_true, y_pred_nom)
         q_loss = quant_loss( y_true, y_pred_quant, q_quant)
+#        q_loss = tf.constant(0, dtype=tf.float32)
         p_loss_1 = penf(y_pred_nom, max_val)
         p_loss_2 = penf(y_pred_nom, min_val)
+        m_loss = mean_loss(y_true, y_pred_nom)
         
-        return tf.math.add_n( [r_loss, q_loss, p_loss_1, p_loss_2] )
+        return tf.math.add_n( [r_loss, q_loss, p_loss_1, p_loss_2, m_loss] )
 
+    def tot_loss_ind_a(y_true, y_pred_nom, y_pred_quant, delta=tf.constant(1., dtype=tf.float32)):
+        # the third argument here represents sample_weight, not delta
+        a_loss = reg_loss_a( y_true, y_pred_nom )
+        q_loss = quant_loss( y_true, y_pred_quant, q_quant)
+#        q_loss = tf.constant(0, dtype=tf.float32)
+        p_loss_1 = penf(y_pred_nom, max_val)
+        p_loss_2 = penf(y_pred_nom, min_val)
+        m_loss = mean_loss(y_true, y_pred_nom)
+        
+        return tf.math.add_n( [a_loss, q_loss, p_loss_1, p_loss_2, m_loss] )
+
+    def model_loss_pen(y_true, y_pred):
+        
+        x_loss = tot_loss_ind_x( y_true[:,0], y_pred[:,0], y_pred[:,1])
+        a_loss = tot_loss_ind_a( y_true[:,1], y_pred[:,2], y_pred[:,3] )
+
+        return tf.math.add(x_loss, a_loss)
     def model_loss(y_true, y_pred):
         
-        x_loss = tot_loss_indx( y_true[:,0], y_pred[:,0], y_pred[:,1], delta=delta_x )
-        a_loss = tot_loss_indx( y_true[:,1], y_pred[:,2], y_pred[:,3], delta=delta_a )
+        x_loss = reg_loss_x( y_true[:,0], y_pred[:,0] )
+        a_loss = reg_loss_a( y_true[:,1], y_pred[:,2] )
 
         return tf.math.add(x_loss, a_loss)
 
-    return model_loss
+    if use_pen:
+        return model_loss_pen
+    else:
+        return model_loss
 
 def regr_loss(n_outs=3, use_pen=True, pen_type=0, weights=[1,1,0.1]):
     """
@@ -266,7 +310,8 @@ class MyTCNModel:
         use_pen=True, pen_type=0,
         do_bias=True,
         pooling='max',
-        learning_rate=0.001):
+        learning_rate=0.001,
+        prune=0):
         
         self.input_shape=input_shape
         self.convs_1ds=convs_1ds
@@ -283,7 +328,9 @@ class MyTCNModel:
         self.do_bias=do_bias
         self.pooling=pooling
         self.learning_rate = learning_rate
-    
+        self.prune=(prune!=0)
+        if self.prune:
+            self.pruning_params = {"pruning_schedule" : pruning_schedule.ConstantSparsity(prune/100., begin_step=2000, frequency=100)}
     def MyLoss(self):
         # return regr_loss(n_outs=self.n_outs, use_pen=self.use_pen, pen_type=self.pen_type)
         return regr_loss_xa_quant(use_pen=self.use_pen, pen_type=self.pen_type)
@@ -367,6 +414,112 @@ class MyTCNModel:
     
         out = Dense(self.n_outs, activation='linear', kernel_initializer='variance_scaling', 
                                  kernel_constraint=max_norm(1.), bias_constraint=max_norm(1.),
+                                     use_bias=self.do_bias, name=f'output')(hidden)
+
+        model = Model(inputs=inputs, outputs=[out])
+        model.summary()
+
+        custom_loss = self.MyLoss()
+        if self.prune:
+            print("REMEMBER we are trying to prune")
+            model = prune.prune_low_magnitude(model, **(self.pruning_params))
+
+        opt = Adam(learning_rate=self.learning_rate)
+        model.compile(loss=custom_loss, optimizer=opt)
+
+        return model
+
+    
+class MyQ_TCNModel:
+    def __init__(self, input_shape,
+        convs_1ds=[ (64,3,1), (64,3,1) ],
+        F_layers=[20,10], 
+        batchnorm_dense=False,
+        batchnorm_conv=False, 
+        batchnorm_inputs=False,
+        batchnorm_constr=False,
+        n_outs=3,
+        l1_reg=0, l2_reg=0,
+        use_pen=True, pen_type=0,
+        do_bias=True,
+        pooling='max',
+        learning_rate=0.001,
+        quantizer_b="quantized_bits(8,0,1)",
+        quantizer_r="quantized_relu(8,0)"):
+        
+        self.input_shape=input_shape
+        self.convs_1ds=convs_1ds
+        self.F_layers=F_layers
+        self.batchnorm_dense=batchnorm_dense
+        self.batchnorm_conv=batchnorm_conv
+        self.batchnorm_inputs=batchnorm_inputs
+        self.batchnorm_constr=batchnorm_constr
+        self.n_outs=n_outs
+        self.l1_reg=l1_reg
+        self.l2_reg=l2_reg
+        self.use_pen=use_pen
+        self.pen_type=pen_type
+        self.do_bias=do_bias
+        self.pooling=pooling
+        self.learning_rate = learning_rate
+        self.quantizer_b = quantizer_b
+        self.quantizer_r = quantizer_r
+    
+    def MyLoss(self):
+        # return regr_loss(n_outs=self.n_outs, use_pen=self.use_pen, pen_type=self.pen_type)
+        return regr_loss_xa_quant(use_pen=self.use_pen, pen_type=self.pen_type)
+
+    def model(self):
+
+        inputs = Input(shape=(self.input_shape[0], self.input_shape[1],), name="inputs")
+        
+    
+        def MyBatchNorm():
+            if self.batchnorm_constr:
+                return QBatchNormalization(beta_constraint=max_norm(1.), gamma_constraint=max_norm(1.))
+            else:
+                return QBatchNormalization()
+    
+        def residual_block(irblock, x, nfilters, ksize, strides):
+            print("FATAL: residual block not implemented for qKeras")
+            return -1
+    
+        if self.batchnorm_inputs: 
+            conv = MyBatchNorm()(inputs)
+        else:
+            conv = inputs      
+
+        for ic1d,c1d in enumerate(self.convs_1ds):
+            if c1d[3] == 0:
+                conv = QConv1D(filters=c1d[0], kernel_size=c1d[1], strides=c1d[2], kernel_initializer='variance_scaling', kernel_regularizer=tf.keras.regularizers.L1L2(l1=self.l1_reg, l2=self.l2_reg),
+#                                  kernel_constraint=max_norm(1.),
+                               kernel_quantizer=self.quantizer_b, 
+                               bias_quantizer=self.quantizer_b,
+                                  input_shape=(conv.shape[1], conv.shape[2]), name=f"C1D_{ic1d}" )(conv)
+            if c1d[3] == 1:
+                conv = residual_block(irblock=ic1d, x=inputs, nfilters=c1d[0], ksize=c1d[1], strides=c1d[2])
+
+            conv = QActivation(activation=self.quantizer_r, name=f'relu_c{ic1d}')(conv)
+            if self.batchnorm_conv: conv = MyBatchNorm()(conv)
+
+        if 'max' in self.pooling:
+            hidden = GlobalMaxPooling1D()(conv)
+        elif 'average' in self.pooling:
+            hidden = GlobalAveragePooling1D()(conv)
+        elif 'flat' in self.pooling:
+            hidden = Flatten()(conv)
+
+        for iF,F_l in enumerate(self.F_layers):
+            hidden = QDense(F_l, kernel_initializer='variance_scaling', #kernel_constraint=max_norm(1.), bias_constraint=max_norm(1.), 
+                            kernel_quantizer=self.quantizer_b, 
+                               bias_quantizer=self.quantizer_b,
+                            name=f'F_dense_{iF}')(hidden)
+
+            hidden = QActivation(activation=self.quantizer_r, name=f'relu_d{iF}')(hidden)
+            if self.batchnorm_dense: hidden = MyBatchNorm()(hidden)
+        out = QDense(self.n_outs, activation='linear', kernel_initializer='variance_scaling', 
+                                 kernel_quantizer=self.quantizer_b, 
+                               bias_quantizer=self.quantizer_b,#kernel_constraint=max_norm(1.), bias_constraint=max_norm(1.),
                                      use_bias=self.do_bias, name=f'output')(hidden)
 
         model = Model(inputs=inputs, outputs=[out])

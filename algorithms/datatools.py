@@ -22,7 +22,7 @@ def make_data_matrix(all_files, max_files=50, masking99 = False, sort_by='none')
             continue
         
         if ifile == 0:
-            sig_keys = [ vv.decode("utf-8") for vv in np.array(this_file['signal_keys']) ]
+            sig_keys = [ vv.decode("utf-8") if type(vv) is bytes else vv for vv in np.array(this_file['signal_keys']) ]
             
     
         signals.append( np.array( this_file['signals'] ) )
@@ -151,7 +151,9 @@ def training_prep(X, sig_keys):
     print('Output data matrix shape:', X_out.shape)
     return X_out
 
-def detector_matrix(X, sig_keys, detcard):
+def detector_matrix_back(X, sig_keys, detcard, verbose=False):
+    #TODO
+    # the for loops in line 220-213 can be optimized in one for loop
     print('~~ Preparing detector-based data matrix ~~')
     print('Using detector card:', detcard)
     
@@ -170,7 +172,7 @@ def detector_matrix(X, sig_keys, detcard):
         tmin = np.min(X[:,:,sig_keys.index(sk)])
         maxs[sk] = tmax if tmax > 0 else 1
         mins[sk] = tmin
-
+    if verbose: print (f"maxs : {maxs}")
     specs = 0
     with open(detcard) as f:
         # fyml = yaml.load(f, Loader=yaml.FullLoader) ## only works on yaml > 5.1
@@ -200,15 +202,18 @@ def detector_matrix(X, sig_keys, detcard):
     X_out = np.zeros( (X.shape[0], len(z_hit_planes), X.shape[2]+2) )
     
     # for iev,ev in enumerate(X):
+    if verbose: print (f"X.shape[0]: {range( X.shape[0] )}")
     for iev in tqdm(range( X.shape[0] )):
         ev = X[iev]
         allhit=0
-        
+        if verbose: print (f"ev: {ev}")
         for ipz,pz in enumerate(z_hit_planes):
             X_out[iev,ipz,sig_keys.index('z')]=pz
-
+            if verbose: print (f"pz: {pz}")
             for ihit,hit in enumerate(X[iev][allhit:]):
+                if verbose: print (f"hit: {hit}")
                 if hit[sig_keys.index('z')]==pz:
+                    if verbose: print (f"hit[sig_keys.index('z')]: {pz}")
                     X_out[iev,ipz,:sig_keys.index('ptypetilt')] = np.copy(hit)
                     X_out[iev,ipz,sig_keys.index('is_signal')] = 1
                     allhit+=1
@@ -235,6 +240,105 @@ def detector_matrix(X, sig_keys, detcard):
         X_out[iev,hits_stg,sig_keys.index('ptypetilt')]           = np.zeros_like( X_out[iev,hits_stg,sig_keys.index('ptilt')] )
         
         X_out[iev,:,sig_keys.index('ptypetilt')] = X_out[iev,:,sig_keys.index('ptypetilt')]/4.0
+        verbose =False 
+ 
+    print('Output data matrix shape:', X_out.shape)
+    return X_out
+
+def detector_matrix_2(X, sig_keys, detcard, verbose=False):
+    #TODO
+    # the for loops in line 220-213 can be optimized in one for loop
+    print('~~ Preparing detector-based data matrix ~~')
+    print('Using detector card:', detcard)
+    
+    if 'ptypetilt' not in sig_keys:
+        sig_keys.append('ptypetilt')
+        
+    if 'is_signal' not in sig_keys:
+        sig_keys.append('is_signal')
+
+    maxs = {}
+    mins = {}
+    
+    for sk in sig_keys:
+        if 'is_signal' in sk or 'ptypetilt' in sk: continue
+        tmax = np.max(X[:,:,sig_keys.index(sk)])
+        tmin = np.min(X[:,:,sig_keys.index(sk)])
+        maxs[sk] = tmax if tmax > 0 else 1
+        mins[sk] = tmin
+    if verbose: print (f"maxs : {maxs}")
+    specs = 0
+    with open(detcard) as f:
+        # fyml = yaml.load(f, Loader=yaml.FullLoader) ## only works on yaml > 5.1
+        fyml = yaml.safe_load(f)
+        specs = fyml['detector']
+    
+    n_planes = len(specs['planes'])
+    z_hit_planes = []
+    t_width_planes = []
+    for p_name in specs['planes']:
+        p = specs['planes'][p_name]
+        n_hits = 0
+        if 'max_hits' in p:
+            n_hits = p['max_hits']
+        elif p['type'] == 'mm':
+                print('If this is a MM layer, you need to limit the number of hits per layer')
+                return -1
+        else:
+            n_hits = 1
+            
+        z_hit_planes += n_hits*[p['z']]
+        p_t_width = p['width_t'] if 'width_t' in p else specs['det_width_t']
+        t_width_planes += n_hits*[p_t_width]
+        
+    print(z_hit_planes)
+    
+    X_out = np.zeros( (X.shape[0], len(z_hit_planes), X.shape[2]+2) )
+    
+    # for iev,ev in enumerate(X):
+    if verbose: print (f"X.shape[0]: {range( X.shape[0] )}")
+    for iev in tqdm(range( X.shape[0] )):
+        ev = X[iev]
+        allhit=0
+        if verbose: print (f"ev: {ev}")
+        pz_index = {}
+        for ipz,pz in enumerate(z_hit_planes):
+            X_out[iev,ipz,sig_keys.index('z')]=pz
+            pz_index["{:.1f}".format(pz)] = ipz
+            index = pz_index["{:.1f}".format(pz)]
+            if verbose: print (f"pz: {pz}: index {index}")
+        for ihit,hit in enumerate(X[iev][0:]):
+            if verbose: print (f"hit: {hit}")
+            pz = f"{hit[sig_keys.index('z')]}"
+            if f"-99.0"!=pz:
+                if verbose: print (f"hit[sig_keys.index('z')]: {pz}")
+                X_out[iev,pz_index[pz],:sig_keys.index('ptypetilt')] = np.copy(hit)
+                X_out[iev,pz_index[pz],sig_keys.index('is_signal')] = 1
+            else:
+                break
+
+        for sk in sig_keys:
+            if 'is_signal' in sk or 'ptypetilt' in sk: continue
+            elif 'time' in sk:
+                X_out[iev,:,sig_keys.index('time')] = np.floor( X_out[iev, :,sig_keys.index(sk)]*(4/100) )/4.
+            elif 'z' in sk:
+                X_out[iev,:,sig_keys.index('z')]    = 2.*X_out[iev,:,sig_keys.index('z')]/np.max( z_hit_planes ) - 1
+            else:
+                X_out[iev,:,sig_keys.index(sk)] = X_out[iev, :,sig_keys.index(sk)]/maxs[sk]
+
+        #ptypetilt
+        X_out[iev,:, sig_keys.index('ptypetilt')] = np.copy(X_out[iev,:, sig_keys.index('ptilt')]) + 3
+                    
+        ## stgc
+        hits_stg = (X_out[iev,:,sig_keys.index('ptype')] == 1)
+
+        X_out[iev,hits_stg,sig_keys.index('projX_at_middle_x')]   = np.copy(       X_out[iev,hits_stg,sig_keys.index('x')] )
+        X_out[iev,hits_stg,sig_keys.index('projX_at_rightend_x')] = np.zeros_like( X_out[iev,hits_stg,sig_keys.index('projX_at_rightend_x')] )
+        X_out[iev,hits_stg,sig_keys.index('time')]                = np.zeros_like( X_out[iev,hits_stg,sig_keys.index('time')] )
+        X_out[iev,hits_stg,sig_keys.index('ptypetilt')]           = np.zeros_like( X_out[iev,hits_stg,sig_keys.index('ptilt')] )
+        
+        X_out[iev,:,sig_keys.index('ptypetilt')] = X_out[iev,:,sig_keys.index('ptypetilt')]/4.0
+        verbose =False 
  
     print('Output data matrix shape:', X_out.shape)
     return X_out

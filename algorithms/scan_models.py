@@ -15,11 +15,13 @@ from scipy.stats import skew, iqr
 def sigmoid(x):
     return 1/(1 + np.exp(-x))
 
-SIM="/gpfs/slac/atlas/fs1/d/rafaeltl/public/Muon/simulation/20220912/SIG_atlas_nsw_pad_z0_xya/"
-DATA_LOC=f"{SIM}/TEST/*.h5"
+import config
+
+#SIM="/gpfs/slac/atlas/fs1/d/rafaeltl/public/Muon/simulation/20220912/SIG_atlas_nsw_pad_z0_xya/"
+DATA_LOC=config.DATA_LOC
 
 
-detmat=f'{SIM}/atlas_nsw_pad_z0.yml'
+detmat=config.DET
 linearized = True
 
 files=glob(DATA_LOC)

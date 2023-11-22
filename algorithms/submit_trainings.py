@@ -2,12 +2,14 @@ import os
 import sys
 from copy import deepcopy
 
-SIM      = "/gpfs/slac/atlas/fs1/d/rafaeltl/public/Muon/simulation/20220912/SIG_atlas_nsw_pad_z0_xya/"
+sys.path.insert(0, '../')
+import config
+SIM      = config.SIM
 #SIM      = "/gpfs/slac/atlas/fs1/d/rafaeltl/public/Muon/simulation/20220912/NoNoise_SIG_atlas_nsw_pad_z0_xya/"
-DATA_LOC = f"{SIM}/TRAIN/*.h5"
-SING_IMG = "/gpfs/slac/atlas/fs1/d/rafaeltl/public/sing/muon_qkeras.sif"
+DATA_LOC = config.DATA_LOC
+SING_IMG = config.SING_IMG
 
-DCARD    = f" --detmat {SIM}/atlas_nsw_pad_z0.yml "
+DCARD    = f" --detmat {config.DET}"
 TEST     = False
 LOCAL    = False
 

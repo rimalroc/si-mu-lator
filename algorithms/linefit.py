@@ -50,11 +50,11 @@ def get_mm_line_fit(hits, sig_keys, is_perfect=False, only_x=False):
     xs = xs[ indx_hit ]
     unc_xs = unc_xs[ indx_hit ]
     
-    # print(zs)
-    # print(xs)
-    # print(unc_xs)
-    # print(ptype[indx_hit])
-    # print(ptilt[indx_hit])
+#    print(zs)
+#    print(xs)
+#    print(unc_xs)
+#    print(ptype[indx_hit])
+#    print(ptilt[indx_hit])
     
     ## calculate coefficients
     _c1 = ( zs**2/unc_xs**2 ).sum() #beta
@@ -62,7 +62,13 @@ def get_mm_line_fit(hits, sig_keys, is_perfect=False, only_x=False):
     _c3 = ( zs*xs/unc_xs**2 ).sum() #omega
     _c4 = ( 1./unc_xs**2 ).sum() #lambda
     _c5 = ( xs/unc_xs**2 ).sum() #rho
-        
+    
+#    print("Coefficients")
+#    print(_c1)
+#    print(_c2)
+#    print(_c3)
+#    print(_c4)
+#    print(_c5)
     ## calculate line parameters
     A = ( _c5*_c2 - _c3*_c4 ) / ( _c2**2 - _c1*_c4 )
     B = ( _c3 - A*_c1 ) / _c2
@@ -70,7 +76,7 @@ def get_mm_line_fit(hits, sig_keys, is_perfect=False, only_x=False):
     ## calculate chi2 value
     Chi2 = ( ( A*zs + B - xs )**2 / unc_xs**2 ).sum()
     
-#     print(A, B, Chi2)
+#    print(A, B, Chi2)
 #     print()
 #     print()
         

@@ -10,18 +10,24 @@ import trainingvariables
 from glob import glob
 from sklearn.utils import shuffle
 
-files_loc = "/gpfs/slac/atlas/fs1/d/rafaeltl/public/Muon/simulation/20220912/"
+files_loc = "/Data/ML/si-mu-lator/simulation_data"
 fdir = "SIG_atlas_nsw_pad_z0_xya"
 nevs=50000
 do_det_matrix=True
-det_card=files_loc+fdir+'/atlas_nsw_pad_z0.yml'
+#CARD='atlas_nsw_pad_z0_stg2BC'
+#CARD='atlas_nsw_pad_z0_stg300um'
+CARD='atlas_nsw_pad_z0_mm4BC'
+det_card=f'../cards/{CARD}.yml'
 
-all_files = glob(files_loc+fdir+'/TEST/*.h5')
 
-data, dmat, Y, Y_mu, Y_hit, sig_keys = datatools.make_data_matrix(all_files, max_files=1000, sort_by='z')
+all_files = glob(f'/Data/ML/si-mu-lator/simulation_data/{CARD}_bkgr_1'+'/VALIDATE/W*.h5')
+print(all_files)
+data, dmat, Y, Y_mu, Y_hit, sig_keys = datatools.make_data_matrix(all_files, max_files=10, sort_by='z')
+
+this_cut=(Y_mu==1)
 
 if do_det_matrix:
-    X_prep = datatools.detector_matrix(dmat, sig_keys, det_card)
+    X_prep = datatools.detector_matrix_2(dmat, sig_keys, det_card)
 else:
     X_prep = datatools.training_prep(dmat, sig_keys)
 
@@ -45,8 +51,8 @@ Y_test[:,1] = Y_areg_test
 
 out_name_tag = f"test_{nevs}_padMat_{fdir}.npy"
 if do_det_matrix:
-    det_card_name = det_card.split('/')[-1].replace('.yml', '')
-    out_name_tag = f"test_{nevs}_detMat_{det_card_name}.npy"
+    out_name_tag = f"test_{nevs}_detMat_{CARD}.npy"
 
-np.save(f"X_{out_name_tag}", X_test[:nevs])
-np.save(f"Y_{out_name_tag}", Y_test[:nevs])
+
+np.save(f"X_{out_name_tag}", X_test[this_cut][:nevs])
+np.save(f"Y_{out_name_tag}", Y_test[this_cut][:nevs])
