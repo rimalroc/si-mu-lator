@@ -7,3 +7,5 @@ algorithms/models/*
 hls4ml/notebooks/myproject_prj
 algorithms/notebooks/plots/
 hls4ml/notebooks/model_plots/
+venv
+models
