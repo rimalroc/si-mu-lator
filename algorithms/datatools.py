@@ -6,6 +6,21 @@ from tqdm import tqdm
 import yaml
 
 def make_data_matrix(all_files, max_files=50, masking99 = False, sort_by='none'):
+    """
+    Function for converting si-mu-late detector output in a .h5 file into input data for
+    either nn or chi2 fits
+    Arguments:
+    all_files -- List of input files to be concatenated into a single sample.
+    Keyword Arguments:
+    max_files -- Limit to number of input files.
+    masking99 -- Deprecated.
+    sort_by -- Deprecated.
+    Return values:
+    data -- Dictionary, initial muon info extracted from file and decorations with occupancy info
+    dmat -- np.ndarray, shaped num_events * max_hits * signal_features. This is a matrix representing the detector output
+    Y, Y_mu, Y_hit -- 
+    """
+  
     print('~~ Reading data... ~~')
     
     data = {}
