@@ -128,14 +128,14 @@ def get_fits(events, sig_keys, overwrite=False, is_perfect=False, only_x=False):
 #     # A = ( _c5*_c2 - _c3*_c4 ) / ( _c2**2 - _c1*_c4 )
 #     # B = ( _c3 - A*_c1 ) / _c2
 #     ## calculate chi2 value
-#     # Chi2 = ( ( A*zs + B - xs )**2 / unc_xs**2 ).sum()
+#    Chi2 = ( ( A*zs + B - xs )**2 / unc_xs**2 ).sum()
 
 
 # def get_mdt_fits(events, sig_keys, overwrite=False, is_perfect=False, only_x=False):
     
-#     fits = np.zeros( (events.shape[0], 3) )
-#     for iev,hits in enumerate(events):
-#         lfit = get_mdt_line_fit(hits, sig_keys, is_perfect=is_perfect, only_x=only_x)
-#         fits[iev,:] = lfit
-#         # if iev > 10: break
+    # fits = np.zeros( (events.shape[0], 3) )
+    # for iev,hits in enumerate(events):
+        # lfit = get_mdt_line_fit(hits, sig_keys, is_perfect=is_perfect, only_x=only_x)
+        # fits[iev,:] = lfit
+#        if iev > 10: break
 #     return fits
