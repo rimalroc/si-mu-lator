@@ -40,6 +40,7 @@ class Detector:
             for p in self.planes:
                 p.clear_hits()
 
+    ## clear out the list of fit muons
     def reset_fits( self ):
         self.fit_muons.clear();
 
