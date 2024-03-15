@@ -28,3 +28,8 @@ optional arguments:
 ```
 source init_sing.sh
 ```
+
+## Setup 
+copy `config-template.py` to `config.py` and update the paths and variables to your setup.
+If adding more variables, commit them to the template.
+

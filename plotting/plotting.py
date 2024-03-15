@@ -7,7 +7,7 @@ import sympy
 from detmodel.plane import DetType
 from detmodel import util
 
-def plot_det_volume(det, ax, draw_muon=False):
+def plot_det_volume(det, ax, draw_muon=False, verbose=False):
     
     edges = {'top':0, 'bottom':0, 'left':0, 'right':0}
     
@@ -49,9 +49,9 @@ def plot_det_volume(det, ax, draw_muon=False):
                 if slx.sig.is_muon:
                     lcolor='green'
                     alpha = 1
-                    print("Found muon signal, plane ", ip, " xseg ", islx, " time ",  slx.sig.time )
+                    if verbose: print("Found muon signal, plane ", ip, " xseg ", islx, " time ",  slx.sig.time )
                 else:
-                    print("Found bkg signal, plane ", ip, " xseg ", islx, " time ",  slx.sig.time )
+                    if verbose: print("Found bkg signal, plane ", ip, " xseg ", islx, " time ",  slx.sig.time )
 
             ax.plot3D (
                 xs=[ float(inter_left.x), float(inter_right.x) ],
@@ -104,7 +104,7 @@ def plot_det_volume(det, ax, draw_muon=False):
     ax.set_zlabel('z')
     
     
-def plot_det_xz(det, ax, draw_muon=False, draw_allhits=False):
+def plot_det_xz(det, ax, draw_muon=False, draw_allhits=False, verbose=False):
 
     # Plot XZ projection for MDT chamber with vertical tubes (along y axis)
 
@@ -170,9 +170,11 @@ def plot_det_xz(det, ax, draw_muon=False, draw_allhits=False):
             if hit.is_muon:  # muon hit
                 lcolor = 'green'
                 alpha = 1
+                if verbose: print("Found muon signal, plane ", ip, " ihit ", ihit, " time ",  hit.time )
             else:            # noise hit
                 lcolor = 'm'
                 alpha = 0.7
+                if verbose: print("Found bkg signal, plane ", ip, " ihit ", ihit, " time ",  hit.time )
 
             rdrift = 0.20  # small fixed radius to mark hit position 
             hitpos = (0,0)
@@ -242,3 +244,52 @@ def plot_det_xz(det, ax, draw_muon=False, draw_allhits=False):
     plt.xlabel('theta')
     plt.ylabel('tubes')
  """    
+
+
+def plot_det_geo_xz(det, ax, verbose=False):
+
+    # Plot XZ projection for MDT chamber with vertical tubes (along y axis)
+
+    edges = {'top':0, 'bottom':0, 'left':0, 'right':0}
+    pitch = det.specs['det_width_x']/det.specs['det_n_x_seg']  # works for MDT
+
+    max_x = 0
+    max_y = 0
+    max_z = 100
+    min_z = 0
+    hitpos_mu = []
+    hitpos_bg = []
+
+    # Loop over detector planes
+    for ip,p in enumerate(det.planes):
+        pz = p.z
+        if verbose: print(f"pz: {pz}")
+        for e in edges:
+            edges[e] = p.get_edge(e)
+
+
+        # Draw lines at location of detector planes
+        xs=[ -0.5*p.sizes['x'], 0.5*p.sizes['x'] ]
+        zs=[ pz, pz ]
+        if p.p_type != DetType.MDT:
+            pitch = p.sizes['x'] / len(p.segmentations['x'])
+
+        if 0.5*p.sizes['x'] > max_x: max_x = 0.5*p.sizes['x']
+        if pz > max_z: max_x = pz
+        if pz < min_z: min_x = pz
+        lcolor = 'gray'
+        alpha = 0.4
+        wirepos = np.array([pz, 0])
+        rec = plt.Rectangle(wirepos-(0.42*pitch,0), 5, 40, color=lcolor, alpha=alpha)
+        ax.add_patch(rec)
+        # Loop over the detector elements in this plane and draw circles for MDT (rectangles otherwise)
+
+
+
+    #ax.set_xlim(-max_x*1, max_x*1)
+    #ax.set_ylim(-10, max_z+25)
+    ax.set_xlim(0-10, max_x*1+10)
+    ax.set_ylim((min_z-10)*1, (max_z+10)*1)
+
+    ax.set_xlabel('x (mm)', fontsize=15)
+    ax.set_ylabel('z (mm)', fontsize=15)
