@@ -10,3 +10,5 @@ hls4ml/notebooks/model_plots/
 config.py
 notebooks/*.pdf
 paper_plots/plots_noise/*
+venv
+models

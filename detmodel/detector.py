@@ -7,6 +7,7 @@ from detmodel.signal import Signal
 from detmodel.muon import Muon
 from detmodel.plane import Plane
 from detmodel.plane import DetType
+##from multipledispatch import dispatch
 
 ## ToDo:
 ### Add print method to summarize detector
@@ -19,6 +20,7 @@ class Detector:
         self.planes = []
         self.mymu = 0
         self.has_mu = 0
+        self.fit_muons = []
 
     def find_plane_par(self, par, iplane):
         
@@ -38,13 +40,31 @@ class Detector:
             for p in self.planes:
                 p.clear_hits()
 
-    def add_muon(self, mu_x, mu_y, mu_theta, mu_phi=0, mu_time=0, randseed=42):
-        self.has_mu = 1
+    ## clear out the list of fit muons
+    def reset_fits( self ):
+        self.fit_muons.clear();
+
+    ##@dispatch( Detector, Muon, int)
+    ##def add_muon(self, mu, randseed=42):
+    ##    self.has_mu = 1
+    ##    self.muinit = { 'x': mu.org_x, 'y': mu.org_y, 'theta':mu.theta, 'phi': mu.phi, 'time': mu.time }
+    ##    self.mymu = mu
+
+    ##    for p in self.planes:
+    ##        mu_code = p.pass_muon(self.mymu, randseed=randseed)
+
+    ##@dispatch( Detector, Muon, float, float, float, float, float, int)
+    def add_muon(self, mu_x, mu_y, mu_theta, mu_phi=-1, mu_time=0, randseed=42):
+        self.has_mu = 0
         self.muinit = {'x': mu_x, 'y': mu_y, 'theta': mu_theta, 'phi': mu_phi, 'time': mu_time}
         self.mymu = Muon(x=mu_x, y=mu_y, theta=mu_theta, phi=mu_phi, time=mu_time)
 
         for p in self.planes:
             mu_code = p.pass_muon(self.mymu, randseed=randseed)
+
+    def add_fit_muon(self, fit_muon, randseed=42):
+        self.fit_muons.append( fit_muon )
+
 
     def add_noise(self, noise_scale, override_n_noise_hits_per_event=-1, randseed=42):
         

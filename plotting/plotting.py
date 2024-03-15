@@ -102,9 +102,19 @@ def plot_det_volume(det, ax, draw_muon=False, verbose=False):
     ax.set_xlabel('x')
     ax.set_ylabel('y')
     ax.set_zlabel('z')
+
+def draw_muon_xz( ax, max_z, muon, color='red', line='-' ):
+    plane_init = sympy.Plane(sympy.Point3D(0,0,-10,evaluate=False) , normal_vector=(0,0,1))
+    plane_final = sympy.Plane(sympy.Point3D(0,0,max_z+25,evaluate=False) , normal_vector=(0,0,1))
+    intersect_init = list(plane_init.intersection( muon.line ))
+    intersect_final = list(plane_final.intersection( muon.line ))
+    xs=[ float(intersect_init[0].x), float(intersect_final[0].x) ]
+    zs=[ float(intersect_init[0].z), float(intersect_final[0].z) ]
+    ax.plot( xs, zs, line, color=color )
     
     
-def plot_det_xz(det, ax, draw_muon=False, draw_allhits=False, verbose=False):
+
+def plot_det_xz(det, ax, draw_muon=False, draw_allhits=False, verbose=False, draw_fit_muon=False ):
 
     # Plot XZ projection for MDT chamber with vertical tubes (along y axis)
 
@@ -207,14 +217,12 @@ def plot_det_xz(det, ax, draw_muon=False, draw_allhits=False, verbose=False):
             ax.add_patch(cir)
 
     if draw_muon:
-        plane_init = sympy.Plane(sympy.Point3D(0,0,-10,evaluate=False) , normal_vector=(0,0,1))
-        plane_final = sympy.Plane(sympy.Point3D(0,0,max_z+25,evaluate=False) , normal_vector=(0,0,1))
-        intersect_init = list(plane_init.intersection( det.mymu.line ))
-        intersect_final = list(plane_final.intersection( det.mymu.line ))
-        print(intersect_init, intersect_final)
-        xs=[ float(intersect_init[0].x), float(intersect_final[0].x) ]
-        zs=[ float(intersect_init[0].z), float(intersect_final[0].z) ]
-        ax.plot( xs, zs, color='red' )
+        draw_muon_xz( ax, max_z, det.mymu  )
+
+    ## add fit muons to the plot
+    if draw_fit_muon:
+        for muon in det.fit_muons:
+            draw_muon_xz( ax, max_z, muon, color='blue', line='--' )
 
     #ax.set_xlim(-max_x*1, max_x*1)
     #ax.set_ylim(-10, max_z+25)

@@ -1,0 +1,57 @@
+##### dimensions
+## width of middle-layer MDT chamber = 82 (multilayer 1) + 170 (spacer) + 82 (multilayer 2) = 334 mm
+## Define 1 a.u = 1 mm
+## Endcap middle layer starts at z = 14294.5 mm
+## The wire pitch x in the MDT is 30.035 mm
+####
+
+detector:
+  name: ATLASMDT_EML  ## name must include MDT to that hits are handled properly
+  det_width_t: 1000 ## ns window
+  det_n_t_seg: 25 ## window segmentation
+  det_width_x: 300
+  det_width_y: 300
+  det_n_x_seg: 10
+  det_n_y_seg: 0
+  det_t_res: 11 ## timing resolution in ns (not relevant here for MDT currently)
+  det_sig_eff: 0.95
+  planes:
+    plane_1:
+      z: 15
+      noise_rate: 150000
+      type: mdt
+    plane_2:
+      z: 41
+      offset: 15 ## tube layers are staggered by half a tube
+      noise_rate: 150000
+      type: mdt
+    plane_3:
+      z: 67
+      noise_rate: 150000
+      type: mdt
+    plane_4:
+      z: 267
+      noise_rate: 150000
+      type: mdt
+    plane_5:
+      z: 293
+      offset: 15
+      noise_rate: 150000
+      type: mdt
+    plane_6:
+      z: 319
+      noise_rate: 150000
+      type: mdt
+    plane_7:
+      z: 519
+      noise_rate: 150000
+      type: mdt
+    plane_8:
+      z: 546
+      offset: 15
+      noise_rate: 150000
+      type: mdt
+    plane_9:
+      z: 572
+      noise_rate: 150000
+      type: mdt
